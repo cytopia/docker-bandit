@@ -150,4 +150,3 @@ pull-base-image:
 
 enter:
 	docker run --rm --name $(subst /,-,$(IMAGE)) -it --entrypoint=/bin/sh $(ARG) $(IMAGE):$(VERSION)
-

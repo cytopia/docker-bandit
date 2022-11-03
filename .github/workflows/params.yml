@@ -22,14 +22,12 @@ env:
             "BANDIT-latest  PYTHON-3.9",
             "BANDIT-latest  PYTHON-3.8",
             "BANDIT-latest  PYTHON-3.7",
-            "BANDIT-latest  PYTHON-3.6",
 
             "BANDIT-1  PYTHON-latest",
             "BANDIT-1  PYTHON-3.10",
             "BANDIT-1  PYTHON-3.9",
             "BANDIT-1  PYTHON-3.8",
-            "BANDIT-1  PYTHON-3.7",
-            "BANDIT-1  PYTHON-3.6"
+            "BANDIT-1  PYTHON-3.7"
         ],
         "FLAVOUR": ["latest"],
         "ARCH":    ["linux/amd64", "linux/386", "linux/arm64", "linux/arm/v7", "linux/arm/v6"]

@@ -144,6 +144,7 @@ manifest-push: docker-manifest-push
 .PHONY: test
 test: _test-bandit-version
 test: _test-python-version
+test: _test-run
 
 .PHONY: _test-bandit-version
 _test-bandit-version:
@@ -193,3 +194,25 @@ _test-python-version:
 		fi; \
 	fi; \
 	echo "Success"
+
+.PHONY: _test-run
+_test-run:
+	@echo "------------------------------------------------------------"
+	@echo "- Testing python bandit (Failure)"
+	@echo "------------------------------------------------------------"
+	@if docker run --rm --platform $(ARCH) -v $(CURRENT_DIR)/tests:/data $(IMAGE):$(DOCKER_TAG) failure.py ; then \
+		echo "Failed"; \
+		exit 1; \
+	else \
+		echo "OK"; \
+	fi;
+	@echo "------------------------------------------------------------"
+	@echo "- Testing python bandit (Success)"
+	@echo "------------------------------------------------------------"
+	@if ! docker run --rm --platform $(ARCH) -v $(CURRENT_DIR)/tests:/data $(IMAGE):$(DOCKER_TAG) success.py ; then \
+		echo "Failed"; \
+		exit 1; \
+	else \
+		echo "OK"; \
+	fi;
+	@echo "Success";

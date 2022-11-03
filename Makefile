@@ -2,103 +2,156 @@ ifneq (,)
 .error This Makefile requires GNU Make.
 endif
 
-.PHONY: build rebuild lint test _test-version tag pull login push enter
+# Ensure additional Makefiles are present
+MAKEFILES = Makefile.docker Makefile.lint
+$(MAKEFILES): URL=https://raw.githubusercontent.com/devilbox/makefiles/master/$(@)
+$(MAKEFILES):
+	@if ! (curl --fail -sS -o $(@) $(URL) || wget -O $(@) $(URL)); then \
+		echo "Error, curl or wget required."; \
+		echo "Exiting."; \
+		false; \
+	fi
+include $(MAKEFILES)
 
-CURRENT_DIR = $(dir $(abspath $(lastword $(MAKEFILE_LIST))))
+# Set default Target
+.DEFAULT_GOAL := help
 
-DIR = .
-FILE = Dockerfile
-IMAGE = cytopia/bandit
+
+# -------------------------------------------------------------------------------------------------
+# Default configuration
+# -------------------------------------------------------------------------------------------------
+# Own vars
 TAG = latest
-VERSION = latest
-NO_CACHE =
+
+# Makefile.docker overwrites
+NAME       = bandit
+VERSION    = latest
+IMAGE      = cytopia/bandit
+FLAVOUR    = latest
+DIR        = Dockerfiles
+
+# Extract PHP- and PCS- version from VERSION string
+ifeq ($(strip $(VERSION)),latest)
+	PYTHON_VERSION = latest
+	BANDIT_VERSION  = latest
+else
+	PYTHON_VERSION = $(subst PYTHON-,,$(shell echo "$(VERSION)" | grep -Eo 'PYTHON-([.0-9]+|latest)'))
+	BANDIT_VERSION  = $(subst BANDIT-,,$(shell echo "$(VERSION)"  | grep -Eo 'BANDIT-([.0-9]+|latest)'))
+endif
+
+FILE = Dockerfile.${PYTHON_VERSION}
+ifneq ($(strip $(PYTHON_VERSION)),latest)
+	FILE = Dockerfile.python${PYTHON_VERSION}
+endif
 
 
-# --------------------------------------------------------------------------------------------------
+# Building from master branch: Tag == 'latest'
+ifeq ($(strip $(TAG)),latest)
+	ifeq ($(strip $(VERSION)),latest)
+		DOCKER_TAG = $(FLAVOUR)
+	else
+		ifeq ($(strip $(FLAVOUR)),latest)
+			ifeq ($(strip $(PYTHON_VERSION)),latest)
+				DOCKER_TAG = $(BANDIT_VERSION)
+		else
+				DOCKER_TAG = $(BANDIT_VERSION)-py$(PYTHON_VERSION)
+			endif
+		else
+			ifeq ($(strip $(PYTHON_VERSION)),latest)
+				DOCKER_TAG = $(FLAVOUR)-$(BANDIT_VERSION)
+			else
+				DOCKER_TAG = $(FLAVOUR)-$(BANDIT_VERSION)-py$(PYTHON_VERSION)
+			endif
+		endif
+	endif
+# Building from any other branch or tag: Tag == '<REF>'
+else
+	ifeq ($(strip $(VERSION)),latest)
+	ifeq ($(strip $(FLAVOUR)),latest)
+			DOCKER_TAG = latest-$(TAG)
+	else
+			DOCKER_TAG = $(FLAVOUR)-latest-$(TAG)
+		endif
+	else
+		ifeq ($(strip $(FLAVOUR)),latest)
+			ifeq ($(strip $(PYTHON_VERSION)),latest)
+				DOCKER_TAG = $(BANDIT_VERSION)-$(TAG)
+			else
+				DOCKER_TAG = $(BANDIT_VERSION)-py$(PYTHON_VERSION)-$(TAG)
+			endif
+		else
+			ifeq ($(strip $(PYTHON_VERSION)),latest)
+				DOCKER_TAG = $(FLAVOUR)-$(BANDIT_VERSION)-$(TAG)
+			else
+				DOCKER_TAG = $(FLAVOUR)-$(BANDIT_VERSION)-py$(PYTHON_VERSION)-$(TAG)
+			endif
+		endif
+	endif
+endif
+
+# Makefile.lint overwrites
+FL_IGNORES  = .git/,.github/
+SC_IGNORES  = .git/,.github/
+JL_IGNORES  = .git/,.github/
+
+
+# -------------------------------------------------------------------------------------------------
 # Default Target
-# --------------------------------------------------------------------------------------------------
+# -------------------------------------------------------------------------------------------------
+.PHONY: help
 help:
 	@echo "lint                      Lint project files and repository"
-	@echo "build   [VERSION=...]     Build bandit docker image"
-	@echo "rebuild [VERSION=...]     Build bandit docker image without cache"
-	@echo "test    [VERSION=...]     Test built bandit docker image"
-	@echo "tag TAG=...               Retag Docker image"
-	@echo "login USER=... PASS=...   Login to Docker hub"
-	@echo "push [TAG=...]            Push Docker image to Docker hub"
-
-
-# --------------------------------------------------------------------------------------------------
-# Lint Targets
-# --------------------------------------------------------------------------------------------------
-lint: lint-workflow
-lint: lint-files
-
-.PHONY: lint-workflow
-lint-workflow:
-	@echo "################################################################################"
-	@echo "# Lint Workflow"
-	@echo "################################################################################"
-	@\
-	GIT_CURR_MAJOR="$$( git tag | sort -V | tail -1 | sed 's|\.[0-9]*$$||g' )"; \
-	GIT_CURR_MINOR="$$( git tag | sort -V | tail -1 | sed 's|^[0-9]*\.||g' )"; \
-	if test -z "$${GIT_CURR_MAJOR}"; then \
-		GIT_CURR_MAJOR="0"; \
-	fi; \
-	if test -z "$${GIT_CURR_MINOR}"; then \
-		GIT_CURR_MINOR="0"; \
-	fi; \
-	GIT_NEXT_TAG="$${GIT_CURR_MAJOR}.$$(( GIT_CURR_MINOR + 1 ))"; \
-	if ! grep 'refs:' -A 100 .github/workflows/nightly.yml \
-		| grep  "          - '$${GIT_NEXT_TAG}'" >/dev/null; then \
-		echo "[ERR] New Tag required in .github/workflows/nightly.yml: $${GIT_NEXT_TAG}"; \
-			exit 1; \
-		else \
-		echo "[OK] Git Tag present in .github/workflows/nightly.yml: $${GIT_NEXT_TAG}"; \
-	fi
 	@echo
-
-.PHONY: lint-files
-lint-files:
-	@echo "################################################################################"
-	@echo "# Lint Files"
-	@echo "################################################################################"
-	@docker run --rm -v $(PWD):/data cytopia/file-lint file-cr --text --ignore '.git/,.github/,tests/' --path .
-	@docker run --rm -v $(PWD):/data cytopia/file-lint file-crlf --text --ignore '.git/,.github/,tests/' --path .
-	@docker run --rm -v $(PWD):/data cytopia/file-lint file-trailing-single-newline --text --ignore '.git/,.github/,tests/' --path .
-	@docker run --rm -v $(PWD):/data cytopia/file-lint file-trailing-space --text --ignore '.git/,.github/,tests/' --path .
-	@docker run --rm -v $(PWD):/data cytopia/file-lint file-utf8 --text --ignore '.git/,.github/,tests/' --path .
-	@docker run --rm -v $(PWD):/data cytopia/file-lint file-utf8-bom --text --ignore '.git/,.github/,tests/' --path .
+	@echo "build [ARCH=...] [TAG=...]               Build Docker image"
+	@echo "rebuild [ARCH=...] [TAG=...]             Build Docker image without cache"
+	@echo "push [ARCH=...] [TAG=...]                Push Docker image to Docker hub"
+	@echo
+	@echo "manifest-create [ARCHES=...] [TAG=...]   Create multi-arch manifest"
+	@echo "manifest-push [TAG=...]                  Push multi-arch manifest"
+	@echo
+	@echo "test [ARCH=...]                          Test built Docker image"
 	@echo
 
 
-# --------------------------------------------------------------------------------------------------
-# Build Targets
-# --------------------------------------------------------------------------------------------------
-build:
-	docker build $(NO_CACHE) \
-		--label "org.opencontainers.image.created"="$$(date --rfc-3339=s)" \
-		--label "org.opencontainers.image.revision"="$$(git rev-parse HEAD)" \
-		--label "org.opencontainers.image.version"="${VERSION}" \
-		--build-arg VERSION=$(VERSION) \
-		-t $(IMAGE) \
-		-f $(DIR)/$(FILE) $(DIR)
+# -------------------------------------------------------------------------------------------------
+#  Docker Targets
+# -------------------------------------------------------------------------------------------------
+.PHONY: build
+build: ARGS+=--build-arg BANDIT_VERSION=$(BANDIT_VERSION)
+build: docker-arch-build
 
-rebuild: NO_CACHE=--no-cache
-rebuild: pull-base-image
-rebuild: build
+.PHONY: rebuild
+rebuild: ARGS+=--build-arg BANDIT_VERSION=$(BANDIT_VERSION)
+rebuild: docker-arch-rebuild
+
+.PHONY: push
+push: docker-arch-push
 
 
-# --------------------------------------------------------------------------------------------------
+# -------------------------------------------------------------------------------------------------
+#  Manifest Targets
+# -------------------------------------------------------------------------------------------------
+.PHONY: manifest-create
+manifest-create: docker-manifest-create
+
+.PHONY: manifest-push
+manifest-push: docker-manifest-push
+
+
+# -------------------------------------------------------------------------------------------------
 # Test Targets
-# --------------------------------------------------------------------------------------------------
-test:
-	@$(MAKE) --no-print-directory _test-version
+# -------------------------------------------------------------------------------------------------
+.PHONY: test
+test: _test-bandit-version
+test: _test-python-version
+test: _test-run
 
-_test-version:
+.PHONY: _test-bandit-version
+_test-bandit-version:
 	@echo "------------------------------------------------------------"
 	@echo "- Testing correct version"
 	@echo "------------------------------------------------------------"
-	@if [ "$(VERSION)" = "latest" ]; then \
+	@if [ "$(BANDIT_VERSION)" = "latest" ]; then \
 		echo "Fetching latest version from GitHub"; \
 		LATEST="$$( \
 			curl -Ss https://github.com/PyCQA/bandit/releases \
@@ -110,43 +163,56 @@ _test-version:
 				| tail -1 \
 		)"; \
 		echo "Testing for latest: $${LATEST}"; \
-		if ! docker run --rm $(IMAGE) --version | grep -E "^bandit $${LATEST}"; then \
+		if ! docker run --rm --platform $(ARCH) $(IMAGE):$(DOCKER_TAG) --version | grep -E "^bandit $${LATEST}"; then \
 			echo "Failed"; \
 			exit 1; \
 		fi; \
 	else \
-		echo "Testing for version: $(VERSION)"; \
-		if ! docker run --rm $(IMAGE) --version | grep -E "^bandit $(VERSION)"; then \
+		echo "Testing for version: $(BANDIT_VERSION)"; \
+		if ! docker run --rm --platform $(ARCH) $(IMAGE):$(DOCKER_TAG) --version | grep -E "^bandit $(BANDIT_VERSION)"; then \
 			echo "Failed"; \
 			exit 1; \
 		fi; \
 	fi; \
 	echo "Success";
 
+.PHONY: _test-python-version
+_test-python-version:
+	@echo "------------------------------------------------------------"
+	@echo "- Testing correct Python version"
+	@echo "------------------------------------------------------------"
+	@if [ "$(PYTHON_VERSION)" = "latest" ]; then \
+		if ! docker run --rm --platform $(ARCH) --entrypoint=python $(IMAGE):$(DOCKER_TAG) --version | grep -E '^Python [.0-9]+'; then \
+			echo "Failed"; \
+			exit 1; \
+		fi; \
+	else \
+		echo "Testing for tag: $(PYTHON_VERSION)"; \
+		if ! docker run --rm --platform $(ARCH) --entrypoint=python $(IMAGE):$(DOCKER_TAG) --version | grep -E "^Python $(PYTHON_VERSION)"; then \
+			echo "Failed"; \
+			exit 1; \
+		fi; \
+	fi; \
+	echo "Success"
 
-# -------------------------------------------------------------------------------------------------
-#  Deploy Targets
-# -------------------------------------------------------------------------------------------------
-tag:
-	docker tag $(IMAGE) $(IMAGE):$(TAG)
-
-login:
-	yes | docker login --username $(USER) --password $(PASS)
-
-push:
-	docker push $(IMAGE):$(TAG)
-
-
-# --------------------------------------------------------------------------------------------------
-# Helper Targets
-# --------------------------------------------------------------------------------------------------
-pull-base-image:
-	@grep -E '^\s*FROM' Dockerfile-0.11 \
-		| sed -e 's/^FROM//g' -e 's/[[:space:]]*as[[:space:]]*.*$$//g' \
-		| xargs -n1 docker pull;
-	@grep -E '^\s*FROM' Dockerfile-0.12 \
-		| sed -e 's/^FROM//g' -e 's/[[:space:]]*as[[:space:]]*.*$$//g' \
-		| xargs -n1 docker pull;
-
-enter:
-	docker run --rm --name $(subst /,-,$(IMAGE)) -it --entrypoint=/bin/sh $(ARG) $(IMAGE):$(VERSION)
+.PHONY: _test-run
+_test-run:
+	@echo "------------------------------------------------------------"
+	@echo "- Testing python bandit (Failure)"
+	@echo "------------------------------------------------------------"
+	@if docker run --rm --platform $(ARCH) -v $(CURRENT_DIR)/tests:/data $(IMAGE):$(DOCKER_TAG) failure.py ; then \
+		echo "Failed"; \
+		exit 1; \
+	else \
+		echo "OK"; \
+	fi;
+	@echo "------------------------------------------------------------"
+	@echo "- Testing python bandit (Success)"
+	@echo "------------------------------------------------------------"
+	@if ! docker run --rm --platform $(ARCH) -v $(CURRENT_DIR)/tests:/data $(IMAGE):$(DOCKER_TAG) success.py ; then \
+		echo "Failed"; \
+		exit 1; \
+	else \
+		echo "OK"; \
+	fi;
+	@echo "Success";

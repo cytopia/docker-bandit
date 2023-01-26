@@ -23,9 +23,12 @@ RUN set -eux \
 	\
 	&& pip3 install --no-cache-dir \
 		lxml \
+	&& pip3 install --no-cache-dir \
+		bandit_sarif_formatter \
 	\
 	&& find /usr/lib/ -name '__pycache__' -print0 | xargs -0 -n1 rm -rf \
 	&& find /usr/lib/ -name '*.pyc' -print0 | xargs -0 -n1 rm -rf
+
 
 
 FROM alpine:3.16 as production
